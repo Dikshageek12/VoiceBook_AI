@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book an Appointment | Multispecialty Hospital</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh;
+         display: flex; flex-direction: column; background: #f4f6f8; color: #222; }
+  header { background: #0f5132; color: #fff; padding: 16px 24px; }
+  header h1 { margin: 0; font-size: 20px; }
+  main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .card { background: #fff; border-radius: 12px; padding: 32px; max-width: 460px; width: 100%;
+          text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+  h2 { margin-top: 0; }
+  p { color: #555; line-height: 1.5; }
+  button { font-size: 18px; padding: 14px 32px; border: 0; border-radius: 999px;
+           background: #0f5132; color: #fff; cursor: pointer; }
+  button.end { background: #b02a37; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  #status { margin-top: 18px; min-height: 24px; color: #444; word-break: break-word; }
+  .error { color: #b02a37; }
+  .hint { font-size: 13px; color: #888; margin-top: 18px; }
+</style>
+</head>
+<body>
+<header><h1>Multispecialty Hospital</h1></header>
+<main>
+  <div class="card">
+    <h2>Book an appointment by phone</h2>
+    <p>Tap the button and speak with our booking assistant. You can book, reschedule, or cancel an appointment.</p>
+    <button id="callBtn">Call booking assistant</button>
+    <div id="status"></div>
+    <div class="hint">Please allow microphone access when your browser asks.</div>
+  </div>
+</main>
+
+<script>
+const btn = document.getElementById("callBtn");
+const statusEl = document.getElementById("status");
+
+let vapi = null;
+let VapiClass = null;
+let inCall = false;
+
+function setStatus(text, isError = false) {
+  statusEl.textContent = text;
+  statusEl.className = isError ? "error" : "";
+}
+
+function showIdle() {
+  inCall = false;
+  btn.textContent = "Call booking assistant";
+  btn.classList.remove("end");
+  btn.disabled = false;
+}
+
+function showInCall() {
+  inCall = true;
+  btn.textContent = "End call";
+  btn.classList.add("end");
+  btn.disabled = false;
+}
+
+async function loadSdk() {
+  if (VapiClass) return VapiClass;
+
+  const mod = await import("https://cdn.jsdelivr.net/npm/@vapi-ai/web/+esm");
+
+  // The class can sit in different places depending on how the bundle exports it.
+  const candidates = [mod.default, mod.Vapi, mod.default && mod.default.default];
+  const found = candidates.find(c => typeof c === "function");
+
+  if (!found) {
+    throw new Error("Vapi SDK loaded but no class was found. Exports: " + Object.keys(mod).join(", "));
+  }
+
+  VapiClass = found;
+  return VapiClass;
+}
+
+async function getConfig() {
+  const res = await fetch("/api/public-config");
+  if (!res.ok) throw new Error("Could not load configuration (" + res.status + ")");
+  return res.json();
+}
+
+async function startCall() {
+  btn.disabled = true;
+  setStatus("Connecting...");
+
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("This browser cannot use the microphone. Try Chrome or Edge on a secure (https) link.");
+    }
+
+    const cfg = await getConfig();
+    if (!cfg.public_key || !cfg.assistant_id) {
+      setStatus("Online booking is not set up yet. Please call the hospital directly.", true);
+      showIdle();
+      return;
+    }
+
+    const Vapi = await loadSdk();
+    vapi = new Vapi(cfg.public_key);
+
+    vapi.on("call-start", () => {
+      showInCall();
+      setStatus("Connected. You can speak now.");
+    });
+
+    vapi.on("call-end", () => {
+      showIdle();
+      setStatus("Call ended. Thank you.");
+    });
+
+    vapi.on("error", (err) => {
+      console.error("Vapi error:", err);
+      showIdle();
+      const msg = (err && (err.message || err.errorMsg)) || "unknown error";
+      setStatus("Call error: " + msg, true);
+    });
+
+    await vapi.start(cfg.assistant_id);
+  } catch (err) {
+    console.error("Start failed:", err);
+    showIdle();
+    setStatus("Could not start the call: " + (err.message || err), true);
+  }
+}
+
+btn.addEventListener("click", () => {
+  if (inCall && vapi) {
+    vapi.stop();
+  } else {
+    startCall();
+  }
+});
+</script>
+</body>
+</html>
