@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoiceBook AI Dashboard</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; background: #f4f6f8; color: #222; }
+  header { background: #0f5132; color: #fff; padding: 16px 24px; }
+  header h1 { margin: 0; font-size: 22px; }
+  main { padding: 24px; }
+  button { margin-bottom: 12px; padding: 8px 14px; border: 0; border-radius: 6px;
+           background: #0f5132; color: #fff; cursor: pointer; font-size: 14px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+           gap: 16px; margin-bottom: 24px; }
+  .card { background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  .card .label { font-size: 13px; color: #666; }
+  .card .value { font-size: 28px; font-weight: 600; margin-top: 4px; }
+  h2 { font-size: 18px; margin: 24px 0 8px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px;
+          overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #eee;
+           font-size: 14px; vertical-align: top; }
+  th { background: #fafafa; }
+  .transcript { white-space: pre-wrap; font-size: 13px; color: #444; min-width: 300px; }
+  .empty { color: #777; }
+</style>
+</head>
+<body>
+<header><h1>VoiceBook AI: Admin Dashboard</h1></header>
+<main>
+  <button onclick="loadAll()">Refresh</button>
+
+  <div class="cards">
+    <div class="card"><div class="label">Calls logged</div><div class="value" id="calls">-</div></div>
+    <div class="card"><div class="label">Active appointments</div><div class="value" id="active">-</div></div>
+    <div class="card"><div class="label">Cancelled</div><div class="value" id="cancelled">-</div></div>
+    <div class="card"><div class="label">Patients</div><div class="value" id="patients">-</div></div>
+  </div>
+
+  <h2>Appointments</h2>
+  <table>
+    <thead><tr><th>ID</th><th>Patient</th><th>Phone</th><th>Doctor</th>
+      <th>Service</th><th>Start time</th><th>Status</th></tr></thead>
+    <tbody id="appointments"></tbody>
+  </table>
+
+  <h2>Call log</h2>
+  <table>
+    <thead><tr><th>ID</th><th>Started</th><th>Caller</th><th>Duration (s)</th>
+      <th>Transcript</th></tr></thead>
+    <tbody id="calls-table"></tbody>
+  </table>
+</main>
+
+<script>
+function cell(value, className) {
+  const td = document.createElement("td");
+  td.textContent = value ?? "";
+  if (className) td.className = className;
+  return td;
+}
+
+function fillRows(tbody, rows, colspan, emptyMessage) {
+  tbody.innerHTML = "";
+  if (rows.length === 0) {
+    const td = document.createElement("td");
+    td.colSpan = colspan;
+    td.className = "empty";
+    td.textContent = emptyMessage;
+    const tr = document.createElement("tr");
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+  rows.forEach(cells => {
+    const tr = document.createElement("tr");
+    cells.forEach(c => tr.appendChild(c));
+    tbody.appendChild(tr);
+  });
+}
+
+async function getJSON(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(url + " returned " + res.status);
+  return res.json();
+}
+
+async function loadStats() {
+  const s = await getJSON("/api/dashboard/stats");
+  document.getElementById("calls").textContent = s.calls;
+  document.getElementById("active").textContent = s.active_appointments;
+  document.getElementById("cancelled").textContent = s.cancelled;
+  document.getElementById("patients").textContent = s.patients;
+}
+
+async function loadAppointments() {
+  const items = await getJSON("/api/dashboard/appointments");
+  fillRows(document.getElementById("appointments"),
+    items.map(a => [
+      cell(a.appointment_id), cell(a.patient), cell(a.phone), cell(a.doctor),
+      cell(a.service), cell(a.start_time.replace("T", " ")), cell(a.status),
+    ]),
+    7, "No active appointments yet.");
+}
+
+async function loadCalls() {
+  const items = await getJSON("/api/calls");
+  fillRows(document.getElementById("calls-table"),
+    items.map(c => [
+      cell(c.id), cell(c.started_at.replace("T", " ")), cell(c.caller_phone),
+      cell(c.duration_sec), cell(c.transcript || "(no transcript)", "transcript"),
+    ]),
+    5, "No calls logged yet.");
+}
+
+async function loadAll() {
+  try {
+    await Promise.all([loadStats(), loadAppointments(), loadCalls()]);
+  } catch (e) {
+    alert("Could not load data: " + e.message);
+  }
+}
+
+loadAll();
+</script>
+</body>
+</html>
